@@ -1,0 +1,20 @@
+[package]
+name = "aws-ses-bounce"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[source.crates-io]
+registry = "https://github.com/rust-lang/crates.io-index"
+replace-with = 'ustc'
+
+[source.ustc]
+registry = "git://mirrors.ustc.edu.cn/crates.io-index"
+[dependencies]
+actix-web = "4.3.1"
+serde = { version = "1.0.162", features = ["derive"] }
+serde_json = "1.0.96"
+env_logger = "0.10.0"
+chrono = { version = "0.4.24", features = ["serde"] }
+sqlx = { version = "0.6.3", features = ["runtime-async-std-native-tls", "mysql", "chrono"] }
+dotenv = "0.15.0"
