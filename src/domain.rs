@@ -53,9 +53,9 @@ pub struct Bounce {
 #[serde(rename_all = "camelCase")]
 pub struct BouncedRecipient {
     pub email_address: String,
-    pub action: String,
-    pub status: String,
-    pub diagnostic_code: String,
+    pub action: Option<String>,
+    pub status: Option<String>,
+    pub diagnostic_code: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
