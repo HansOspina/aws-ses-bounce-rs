@@ -67,8 +67,15 @@ async fn handle_sns_notification(path: web::Path<u32>, bytes: Bytes, data: web::
 
     match notification.type_field {
         SubscriptionConfirmation => {
+
+            let a = &notification.subscribe_url.unwrap();
             // To confirm the subscription, visit the SubscribeURL from the incoming message
-            println!("Confirm the subscription by visiting: {}", notification.subscribe_url.unwrap());
+            println!("Confirm the subscription by visiting: {}", a);
+            // Subscribe to the topic using reqwest
+            let client = reqwest::Client::new();
+            let _ = client.get(a).send().await;
+
+
             HttpResponse::Ok().body("ok")
         }
         Notification => {
