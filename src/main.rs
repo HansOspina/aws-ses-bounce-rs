@@ -1,6 +1,6 @@
 mod domain;
 
-use actix_web::{web, middleware::Logger, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, middleware::Logger, App, HttpResponse, HttpServer, Responder, middleware};
 use actix_web::web::Bytes;
 use serde_json::json;
 use crate::domain::{Blacklist, Message, NotificationType, SnsNotification, SnsNotificationType};
@@ -43,6 +43,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(middleware::Compress::default())
             .app_data(web::Data::new(AppState { db: pool.clone() }))
             .wrap(Logger::new(r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#))
             .service(
