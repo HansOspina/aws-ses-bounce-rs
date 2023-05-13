@@ -2,6 +2,7 @@ mod domain;
 
 use actix_web::{web, middleware::Logger, App, HttpResponse, HttpServer, Responder};
 use actix_web::web::Bytes;
+use serde_json::json;
 use crate::domain::{Blacklist, Message, NotificationType, SnsNotification, SnsNotificationType};
 use crate::domain::SnsNotificationType::{Notification, SubscriptionConfirmation};
 use dotenv::dotenv;
@@ -43,15 +44,49 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(AppState { db: pool.clone() }))
-            .wrap(Logger::new("%a %{User-Agent}i"))
+            .wrap(Logger::new(r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#))
             .service(
                 web::resource("/api/{domain_id}/sns-endpoint")
                     .route(web::post().to(handle_sns_notification))
+            )
+            .service(
+                web::resource("/api/{domain_id}/is-blacklisted/{email}")
+                    .route(web::get().to(is_email_blacklisted))
             )
     })
         .bind("0.0.0.0:8000")?
         .run()
         .await
+}
+
+
+// return json success:true, data: {blacklisted: true/false}
+async fn is_email_blacklisted(path: web::Path<(u32,String)>, data: web::Data<AppState>) -> impl Responder {
+    let (domain_id,email) = path.into_inner();
+
+    let query_result = sqlx::query(r#"SELECT * FROM blacklist WHERE domain_id = ? AND email = ?"#)
+        .bind(domain_id)
+        .bind(email)
+        .fetch_one(&data.db)
+        .await;
+
+    match query_result {
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "data": {
+                "blacklisted": true
+            }
+        })),
+        Err(err) => {
+            println!("🔥 Failed to query blacklist: {:?}", err);
+            HttpResponse::Ok().json(json!({
+                "success": true,
+                "data": {
+                    "blacklisted": false
+                }
+            }))
+        }
+    }
 }
 
 
