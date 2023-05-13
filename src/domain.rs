@@ -44,9 +44,9 @@ pub struct Bounce {
     pub bounce_sub_type: String,
     pub bounced_recipients: Vec<BouncedRecipient>,
     pub timestamp: String,
-    pub remote_mta_ip: String,
+    pub remote_mta_ip: Option<String>,
     #[serde(rename = "reportingMTA")]
-    pub reporting_mta: String,
+    pub reporting_mta: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
