@@ -34,6 +34,7 @@ pub enum NotificationType {
     Bounce,
     Complaint,
     Delivery,
+    Notification
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
