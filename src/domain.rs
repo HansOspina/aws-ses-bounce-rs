@@ -34,7 +34,7 @@ pub enum NotificationType {
     Bounce,
     Complaint,
     Delivery,
-    Notification
+    AmazonSnsSubscriptionSucceeded
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
