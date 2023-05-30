@@ -3,7 +3,7 @@ mod domain;
 use actix_web::{web, middleware::Logger, App, HttpResponse, HttpServer, Responder, middleware};
 use actix_web::web::Bytes;
 use serde_json::json;
-use crate::domain::{Blacklist, Message, NotificationType, SnsNotification, SnsNotificationType};
+use crate::domain::{Message, NotificationType, SnsNotification};
 use crate::domain::SnsNotificationType::{Notification, SubscriptionConfirmation};
 use dotenv::dotenv;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
@@ -47,6 +47,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(AppState { db: pool.clone() }))
             .wrap(Logger::new(r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#))
             .service(
+                web::resource("/api/v1/health_check")
+                    .route(web::get().to(health_checker_handler))
+            )
+            .service(
                 web::resource("/api/{domain_id}/sns-endpoint")
                     .route(web::post().to(handle_sns_notification))
             )
@@ -58,6 +62,12 @@ async fn main() -> std::io::Result<()> {
         .bind("0.0.0.0:8000")?
         .run()
         .await
+}
+
+async fn health_checker_handler() -> impl Responder {
+    const MESSAGE: &str = "iBuyFlowers Product Server";
+
+    HttpResponse::Ok().json(json!({"status": "success","message": MESSAGE}))
 }
 
 
@@ -92,7 +102,7 @@ async fn is_email_blacklisted(path: web::Path<(u32,String)>, data: web::Data<App
 
 
 async fn handle_sns_notification(path: web::Path<u32>, bytes: Bytes, data: web::Data<AppState>) -> impl Responder {
-    let (domain_id) = path.into_inner();
+    let domain_id = path.into_inner();
 
     let Some(notification): Option<SnsNotification> = serde_json::from_slice(&bytes).ok() else {
         println!("Received SNS notification error with bytes: {:?}", bytes);
@@ -149,17 +159,17 @@ async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) 
             if err.contains("Duplicate entry") {
                 println!("Note with that title already exists {:?}", err);
                 return HttpResponse::BadRequest().json(
-                    serde_json::json!({"status": "fail","message": "Note with that title already exists"}),
+                    json!({"status": "fail","message": "Note with that title already exists"}),
                 );
             }
 
             println!("Failed to execute query: {:?}", err);
 
             return HttpResponse::InternalServerError()
-                .json(serde_json::json!({"status": "error","message": format!("{:?}", err)}));
+                .json(json!({"status": "error","message": format!("{:?}", err)}));
         }
     }
 
     println!("Got bounce notification: {:?} for domain: {}", bounces, domain_id);
-    HttpResponse::Ok().json(serde_json::json!({"status": "success"}))
+    HttpResponse::Ok().json(json!({"status": "success"}))
 }

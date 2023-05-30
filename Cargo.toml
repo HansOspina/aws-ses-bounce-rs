@@ -10,6 +10,7 @@ replace-with = 'ustc'
 
 [source.ustc]
 registry = "git://mirrors.ustc.edu.cn/crates.io-index"
+
 [dependencies]
 actix-web = "4.3.1"
 serde = { version = "1.0.162", features = ["derive"] }
