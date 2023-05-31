@@ -7,10 +7,12 @@ use actix_web::{middleware, middleware::Logger, web, App, HttpResponse, HttpServ
 use dotenv::dotenv;
 use serde_json::json;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
+use regex::Regex;
 
 pub struct AppState {
     db: MySqlPool,
 }
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -149,6 +151,24 @@ async fn handle_sns_notification(
     }
 }
 
+// having a str with: \"Desert Rose Florals, LLC\" <desertroseflorals@gmail.com>" extract only the email
+fn extract_email_address(input: &str) -> String {
+
+    // if no index of < or >, return the same string
+    if input.find("<").is_none() || input.find(">").is_none() {
+        return input.to_string();
+    }
+
+    let re = Regex::new(r"<(.*)>").unwrap();
+    let caps = re.captures(input);
+
+    match caps {
+        Some(caps) => caps[1].to_string(),
+        None => input.to_string()
+    }
+
+}
+
 async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) -> HttpResponse {
     let reason = serde_json::to_string(&msg.clone()).unwrap();
 
@@ -158,11 +178,12 @@ async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) 
             HttpResponse::Ok().body("ok")
         }
         Some(bounce) => {
+
             let bounces = bounce
                 .bounced_recipients
                 .iter()
-                .map(|r| r.email_address.as_str())
-                .collect::<Vec<&str>>();
+                .map(|r|  extract_email_address(r.email_address.as_str()))
+                .collect::<Vec<String>>();
 
 
             for bounce in &bounces {
