@@ -57,13 +57,13 @@ async fn main() -> std::io::Result<()> {
                     .route(web::get().to(is_email_blacklisted)),
             )
     })
-    .bind("0.0.0.0:8000")?
-    .run()
-    .await
+        .bind("0.0.0.0:8000")?
+        .run()
+        .await
 }
 
 async fn health_checker_handler() -> impl Responder {
-    const MESSAGE: &str = "iBuyFlowers Product Server";
+    const MESSAGE: &str = "SES Blacklist API is running!";
 
     HttpResponse::Ok().json(json!({"status": "success","message": MESSAGE}))
 }
@@ -150,43 +150,53 @@ async fn handle_sns_notification(
 }
 
 async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) -> HttpResponse {
-    let bounces = msg
-        .bounce
-        .bounced_recipients
-        .iter()
-        .map(|r| r.email_address.as_str())
-        .collect::<Vec<&str>>();
+    let reason = serde_json::to_string(&msg.clone()).unwrap();
 
-    let reason = serde_json::to_string(&msg).unwrap();
+    match msg.bounce {
+        None => {
+            println!("Received bounce notification without bounce field: {:?}", msg);
+            HttpResponse::Ok().body("ok")
+        }
+        Some(bounce) => {
+            let bounces = bounce
+                .bounced_recipients
+                .iter()
+                .map(|r| r.email_address.as_str())
+                .collect::<Vec<&str>>();
 
-    for bounce in &bounces {
-        let query_result =
-            sqlx::query(r#"INSERT INTO blacklist (domain_id, email, reason) VALUES (?,?,?)"#)
-                .bind(domain_id)
-                .bind(bounce)
-                .bind(&reason)
-                .execute(&data.db)
-                .await
-                .map_err(|err: sqlx::Error| err.to_string());
 
-        if let Err(err) = query_result {
-            if err.contains("Duplicate entry") {
-                println!("Note with that title already exists {:?}", err);
-                return HttpResponse::BadRequest().json(
-                    json!({"status": "fail","message": "Note with that title already exists"}),
-                );
+            for bounce in &bounces {
+                let query_result =
+                    sqlx::query(r#"INSERT INTO blacklist (domain_id, email, reason) VALUES (?,?,?)"#)
+                        .bind(domain_id)
+                        .bind(bounce)
+                        .bind(&reason)
+                        .execute(&data.db)
+                        .await
+                        .map_err(|err: sqlx::Error| err.to_string());
+
+                if let Err(err) = query_result {
+                    if err.contains("Duplicate entry") {
+                        println!("Note with that title already exists {:?}", err);
+                        return HttpResponse::BadRequest().json(
+                            json!({"status": "fail","message": "Note with that title already exists"}),
+                        );
+                    }
+
+                    println!("Failed to execute query: {:?}", err);
+
+                    return HttpResponse::InternalServerError()
+                        .json(json!({"status": "error","message": format!("{:?}", err)}));
+                }
             }
 
-            println!("Failed to execute query: {:?}", err);
+            println!(
+                "Got bounce notification: {:?} for domain: {}",
+                bounces, domain_id
+            );
 
-            return HttpResponse::InternalServerError()
-                .json(json!({"status": "error","message": format!("{:?}", err)}));
+
+            HttpResponse::Ok().json(json!({"status": "success"}))
         }
     }
-
-    println!(
-        "Got bounce notification: {:?} for domain: {}",
-        bounces, domain_id
-    );
-    HttpResponse::Ok().json(json!({"status": "success"}))
 }

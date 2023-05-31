@@ -25,8 +25,9 @@ pub enum SnsNotificationType {
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     pub notification_type: NotificationType,
-    pub bounce: Bounce,
-    pub mail: Mail,
+    pub bounce: Option<Bounce>,
+    pub message: Option<String>,
+    pub mail: Option<Mail>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,7 +38,7 @@ pub enum NotificationType {
     AmazonSnsSubscriptionSucceeded
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug,Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bounce {
     pub feedback_id: String,
