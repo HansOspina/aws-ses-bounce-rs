@@ -8,24 +8,27 @@ use dotenv::dotenv;
 use serde_json::json;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use regex::Regex;
+use tokio_postgres::NoTls;
+
+
+#[derive(Debug, Clone)]
+enum DBType {
+    Postgres,
+    MySQL(MySqlPool),
+}
 
 pub struct AppState {
-    db: MySqlPool,
+    db_type: DBType,
+    db_url: String,
 }
 
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "actix_web=info");
-    }
-    dotenv().ok();
-    env_logger::init();
+async fn build_mysql_pool(database_url: &str) -> Result<MySqlPool, Box<dyn std::error::Error + Send + Sync>> {
+    println!("🚀 Connecting to the MySQL database...");
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = match MySqlPoolOptions::new()
         .max_connections(10)
-        .connect(&database_url)
+        .connect(database_url)
         .await
     {
         Ok(pool) => {
@@ -38,12 +41,60 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    Ok(pool)
+}
+
+async fn build_pg_pool(database_url: &str) -> Result<tokio_postgres::Client, Box<dyn std::error::Error + Send + Sync>> {
+    println!("🚀 Connecting to the PG database...");
+
+    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    println!("✅Connection to the database is successful!");
+
+    Ok(client)
+}
+
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "actix_web=info");
+    }
+    dotenv().ok();
+    env_logger::init();
+
+    // create the pool depending on the db type, db = MYSQL or = POSTGRES
+    let db = std::env::var("DB_TYPE").unwrap_or_else(|_| "MYSQL".into());
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+
+    let db_type = match db.as_str() {
+        "PG" => {
+            DBType::Postgres
+        }
+        "MYSQL" => {
+            let pool = build_mysql_pool(&database_url).await.unwrap();
+            DBType::MySQL(pool)
+        }
+        _ => {
+             println!("🔥 Unsupported database type: {}", db);
+            std::process::exit(1);
+        }
+    };
+
+
     println!("🚀 Server started successfully");
 
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Compress::default())
-            .app_data(web::Data::new(AppState { db: pool.clone() }))
+            .app_data(web::Data::new(AppState { db_type: db_type.clone(), db_url: database_url.clone() }))
             .wrap(Logger::new(
                 r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#,
             ))
@@ -70,41 +121,66 @@ async fn health_checker_handler() -> impl Responder {
     HttpResponse::Ok().json(json!({"status": "success","message": MESSAGE}))
 }
 
-// return json success:true, data: {blacklisted: true/false}
 async fn is_email_blacklisted(
     path: web::Path<(u32, String)>,
     data: web::Data<AppState>,
 ) -> impl Responder {
     let (domain_id, email) = path.into_inner();
 
-    let query_result = sqlx::query(r#"SELECT * FROM blacklist WHERE domain_id = ? AND email = ?"#)
-        .bind(domain_id)
-        .bind(email)
-        .fetch_one(&data.db)
-        .await;
+    let found: Result<bool, String> = match &data.db_type {
+        DBType::MySQL(pool) => {
+            let query_result = sqlx::query(r#"SELECT * FROM blacklist WHERE domain_id = ? AND email = ?"#)
+                .bind(domain_id)
+                .bind(email)
+                .fetch_one(pool)
+                .await;
 
-    match query_result {
-        Ok(_) => HttpResponse::Ok().json(json!({
-            "success": true,
-            "data": {
-                "blacklisted": true
+            match query_result {
+                Ok(_) => Ok(true),
+                Err(err) => match err {
+                    sqlx::Error::RowNotFound => Ok(false),
+                    _ => Err(format!("🔥 Failed to query the database: {:?}", err))
+                },
             }
-        })),
-        Err(err) => match err {
-            sqlx::Error::RowNotFound => HttpResponse::Ok().json(json!({
+        }
+        DBType::Postgres => {
+            let Ok(client) = build_pg_pool(&data.db_url).await else {
+                return HttpResponse::InternalServerError().json(json!({
+                    "success": false,
+                    "error": "Failed to connect to the database"
+                }))
+            };
+            let query_result = client
+                .query_opt(
+                    r#"SELECT * FROM blacklist WHERE domain_id = $1 AND email = $2"#,
+                    &[&domain_id, &email],
+                )
+                .await;
+
+            match query_result {
+                Ok(Some(_)) => Ok(true),
+                Ok(None) => Ok(false),
+                Err(err) => Err(format!("🔥 Failed to query the database: {:?}", err)),
+            }
+        }
+    };
+
+
+    match found {
+        Ok(blacklisted) => {
+            HttpResponse::Ok().json(json!({
                 "success": true,
                 "data": {
-                    "blacklisted": false
+                    "blacklisted": blacklisted
                 }
-            })),
-            _ => {
-                println!("🔥 Failed to query blacklist: {:?}", err);
-                HttpResponse::Ok().json(json!({
-                    "success": false,
-                    "error": "Failed to query blacklist"
-                }))
-            }
-        },
+            }))
+        }
+        Err(err) => {
+            HttpResponse::InternalServerError().json(json!({
+                "success": false,
+                "error": err
+            }))
+        }
     }
 }
 
@@ -166,7 +242,6 @@ fn extract_email_address(input: &str) -> String {
         Some(caps) => caps[1].to_string(),
         None => input.to_string()
     }
-
 }
 
 async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) -> HttpResponse {
@@ -178,29 +253,64 @@ async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) 
             HttpResponse::Ok().body("ok")
         }
         Some(bounce) => {
-
             let bounces = bounce
                 .bounced_recipients
                 .iter()
-                .map(|r|  extract_email_address(r.email_address.as_str()))
+                .map(|r| extract_email_address(r.email_address.as_str()))
                 .collect::<Vec<String>>();
 
 
             for bounce in &bounces {
-                let query_result =
-                    sqlx::query(r#"INSERT INTO blacklist (domain_id, email, reason) VALUES (?,?,?)"#)
-                        .bind(domain_id)
-                        .bind(bounce)
-                        .bind(&reason)
-                        .execute(&data.db)
-                        .await
-                        .map_err(|err: sqlx::Error| err.to_string());
+                let query_result: Result<(), String> = match &data.db_type {
+                    DBType::MySQL(pool) => {
+
+                        let query_result =
+                            sqlx::query(r#"INSERT INTO blacklist (domain_id, email, reason) VALUES (?,?,?)"#)
+                                .bind(domain_id)
+                                .bind(bounce)
+                                .bind(&reason)
+                                .execute(pool)
+                                .await
+                                .map_err(|err: sqlx::Error| err.to_string());
+
+                        match query_result {
+                            Ok(_) => Ok(()),
+                            Err(err) => Err(err),
+                        }
+                    }
+                    DBType::Postgres => {
+                        match build_pg_pool(&data.db_url).await  {
+                            Ok(pg) => {
+
+                                let query_result =
+                                    pg
+                                    .execute(
+                                        r#"INSERT INTO blacklist (domain_id, email, reason) VALUES ($1,$2,$3)"#,
+                                        &[&domain_id, &bounce, &reason],
+                                    )
+                                    .await
+                                    .map_err(|err| err.to_string());
+
+
+                                match query_result {
+                                    Ok(_) => Ok(()),
+                                    Err(err) => Err(err.to_string()),
+                                }
+                            },
+                            Err(err) => {
+                               Err(err.to_string())
+                            }
+
+                        }
+                    }
+                };
+
 
                 if let Err(err) = query_result {
                     if err.contains("Duplicate entry") {
-                        println!("Note with that title already exists {:?}", err);
+                        println!("blacklist entry already exists for: {}", bounce);
                         return HttpResponse::BadRequest().json(
-                            json!({"status": "fail","message": "Note with that title already exists"}),
+                            json!({"status": "fail","message": format!("blacklist entry already exists for: {}", bounce)}),
                         );
                     }
 
@@ -221,3 +331,4 @@ async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) 
         }
     }
 }
+
