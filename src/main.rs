@@ -290,7 +290,7 @@ async fn handle_bounce(msg: Message, domain_id: i32, data: web::Data<AppState>) 
                                 let query_result =
                                     pg
                                     .execute(
-                                        r#"INSERT INTO blacklist (domain_id, email, reason) VALUES ($1,$2,$3)"#,
+                                        r#"INSERT INTO {table} (domain_id, email, reason) VALUES ($1,$2,$3)"#,
                                         &[&domain_id, &bounce, &reason],
                                     )
                                     .await
