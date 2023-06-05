@@ -156,7 +156,7 @@ async fn is_email_blacklisted(
 
             let query_result = client
                 .query_opt(
-                    r#"SELECT  FROM {table} WHERE domain_id = $1 AND email = $2"#,
+                    &format!(r#"SELECT  FROM {table} WHERE domain_id = $1 AND email = $2"#, table = table),
                     &[&domain_id, &email],
                 )
                 .await;
@@ -290,7 +290,10 @@ async fn handle_bounce(msg: Message, domain_id: i32, data: web::Data<AppState>) 
                                 let query_result =
                                     pg
                                     .execute(
-                                        r#"INSERT INTO {table} (domain_id, email, reason) VALUES ($1,$2,$3)"#,
+                                         &format!(
+                                            r#"INSERT INTO {table} (domain_id, email, reason) VALUES ($1,$2,$3)"#,
+                                            table = table
+                                        ),
                                         &[&domain_id, &bounce, &reason],
                                     )
                                     .await
