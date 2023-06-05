@@ -122,7 +122,7 @@ async fn health_checker_handler() -> impl Responder {
 }
 
 async fn is_email_blacklisted(
-    path: web::Path<(u32, String)>,
+    path: web::Path<(i32, String)>,
     data: web::Data<AppState>,
 ) -> impl Responder {
     let (domain_id, email) = path.into_inner();
@@ -185,7 +185,7 @@ async fn is_email_blacklisted(
 }
 
 async fn handle_sns_notification(
-    path: web::Path<u32>,
+    path: web::Path<i32>,
     bytes: Bytes,
     data: web::Data<AppState>,
 ) -> impl Responder {
@@ -244,7 +244,7 @@ fn extract_email_address(input: &str) -> String {
     }
 }
 
-async fn handle_bounce(msg: Message, domain_id: u32, data: web::Data<AppState>) -> HttpResponse {
+async fn handle_bounce(msg: Message, domain_id: i32, data: web::Data<AppState>) -> HttpResponse {
     let reason = serde_json::to_string(&msg.clone()).unwrap();
 
     match msg.bounce {

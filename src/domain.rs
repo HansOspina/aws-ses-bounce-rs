@@ -76,8 +76,8 @@ pub struct Mail {
 
 #[derive( Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Blacklist {
-    pub id: Option<u32>,
-    pub domain_id: u32,
+    pub id: Option<i64>,
+    pub domain_id: i64,
     pub email: String,
     pub reason: String,
 }
