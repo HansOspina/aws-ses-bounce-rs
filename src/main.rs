@@ -1,5 +1,6 @@
 mod domain;
 
+use std::env;
 use crate::domain::SnsNotificationType::{Notification, SubscriptionConfirmation};
 use crate::domain::{Message, NotificationType, SnsNotification};
 use actix_web::web::Bytes;
@@ -150,9 +151,12 @@ async fn is_email_blacklisted(
                     "error": "Failed to connect to the database"
                 }))
             };
+
+            let table = env::var("PG_TABLE").unwrap_or_else(|_| "blacklist".into());
+
             let query_result = client
                 .query_opt(
-                    r#"SELECT * FROM blacklist WHERE domain_id = $1 AND email = $2"#,
+                    r#"SELECT  FROM {table} WHERE domain_id = $1 AND email = $2"#,
                     &[&domain_id, &email],
                 )
                 .await;
@@ -282,6 +286,7 @@ async fn handle_bounce(msg: Message, domain_id: i32, data: web::Data<AppState>) 
                         match build_pg_pool(&data.db_url).await  {
                             Ok(pg) => {
 
+                                let table = env::var("PG_TABLE").unwrap_or_else(|_| "blacklist".into());
                                 let query_result =
                                     pg
                                     .execute(
